@@ -1,0 +1,10 @@
+{
+  "SOLUSDT": {
+    "state": "IDLE",
+    "enteredStateAt": null,
+    "candlesSinceStateChange": 1,
+    "setup": null,
+    "transitions": [],
+    "position": null
+  }
+}
