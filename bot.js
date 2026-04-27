@@ -11,6 +11,8 @@ import { readFileSync, writeFileSync, existsSync, appendFileSync } from "fs";
 import crypto from "crypto";
 import { execSync } from "child_process";
 import { run as runStrategy3 } from "./strategies/strategy3/strategy3.js";
+import { findDynamicTargets } from "./lib/keyLevels.js";
+import { analyzeStructure } from "./strategies/strategy3/structureDetector.js";
 
 // ─── Onboarding ──────────────────────────────────────────────────────────────
 
@@ -271,6 +273,84 @@ function parseCSVLine(line) {
   return result;
 }
 
+// ─── Dynamic Exit Engine ──────────────────────────────────────────────────
+
+function shouldExitEarly(candles, side, entryPrice, strategy, tp1Price) {
+  if (!candles || candles.length < 30) return { shouldExit: false };
+
+  const closes = candles.map((c) => c.close);
+  const price = closes[closes.length - 1];
+  const pnlRaw = side === "BUY"
+    ? (price - entryPrice) / entryPrice
+    : (entryPrice - price) / entryPrice;
+
+  // 1. Structure break — CHoCH against position (always triggers exit)
+  try {
+    const structure = analyzeStructure(candles, 3);
+    const minIndex = candles.length - 5; // only last 5 candles
+    const recentCHoCH = structure.events.filter(
+      (e) => e.type === "CHoCH" && e.index >= minIndex,
+    );
+    for (const event of recentCHoCH) {
+      if (side === "BUY" && event.direction === "bearish") {
+        return { shouldExit: true, reason: "Bearish CHoCH — structure broke against long" };
+      }
+      if (side === "SELL" && event.direction === "bullish") {
+        return { shouldExit: true, reason: "Bullish CHoCH — structure broke against short" };
+      }
+    }
+  } catch {
+    // Structure analysis failed — skip this check
+  }
+
+  // 2. Momentum fade — only when trade is losing (cut losers before SL)
+  if (pnlRaw < 0) {
+    if (strategy.includes("EMA Crossover")) {
+      const ema21 = calcEMA(closes, 21);
+      const macd = calcMACD(closes);
+      if (side === "BUY" && price < ema21 && macd && macd.histogram < 0) {
+        return { shouldExit: true, reason: "Below EMA(21) + MACD negative — momentum reversed" };
+      }
+      if (side === "SELL" && price > ema21 && macd && macd.histogram > 0) {
+        return { shouldExit: true, reason: "Above EMA(21) + MACD positive — momentum reversed" };
+      }
+    }
+    if (strategy.includes("VWAP")) {
+      const rsi3 = calcRSI(closes, 3);
+      const vwap = calcVWAP(candles);
+      if (side === "BUY" && rsi3 && rsi3 > 65 && vwap && price < vwap) {
+        return { shouldExit: true, reason: "RSI(3) above 65 + below VWAP — snap-back exhausted" };
+      }
+      if (side === "SELL" && rsi3 && rsi3 < 35 && vwap && price > vwap) {
+        return { shouldExit: true, reason: "RSI(3) below 35 + above VWAP — reversal exhausted" };
+      }
+    }
+  }
+
+  // 3. Key level rejection near TP — take profit instead of hoping for breakout
+  if (tp1Price) {
+    const totalTPDist = Math.abs(tp1Price - entryPrice);
+    const distToTP = Math.abs(tp1Price - price);
+    const tpProgress = totalTPDist > 0 ? 1 - distToTP / totalTPDist : 0;
+
+    if (tpProgress > 0.8) { // price within 20% of TP
+      const last = candles[candles.length - 1];
+      const body = Math.abs(last.close - last.open) || 0.01;
+      const upperWick = last.high - Math.max(last.close, last.open);
+      const lowerWick = Math.min(last.close, last.open) - last.low;
+
+      if (side === "BUY" && upperWick > body * 2) {
+        return { shouldExit: true, reason: `Rejection near TP — taking ${(tpProgress * 100).toFixed(0)}% profit` };
+      }
+      if (side === "SELL" && lowerWick > body * 2) {
+        return { shouldExit: true, reason: `Rejection near TP — taking ${(tpProgress * 100).toFixed(0)}% profit` };
+      }
+    }
+  }
+
+  return { shouldExit: false };
+}
+
 async function checkOpenPaperTrades(portfolio) {
   if (!existsSync(CSV_FILE)) return [];
 
@@ -278,75 +358,217 @@ async function checkOpenPaperTrades(portfolio) {
   const lines = content.split("\n");
   if (lines.length < 2) return [];
 
+  // Gather open trades per symbol so we fetch candles once per symbol
+  const symbolTrades = {};
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i]);
+    if (cols[18] !== "OPEN") continue;
+    const symbol = cols[3];
+    if (!symbolTrades[symbol]) symbolTrades[symbol] = [];
+    symbolTrades[symbol].push({ lineIndex: i, cols });
+  }
+
+  // Fetch candles once per symbol — enough to cover the oldest open trade
+  const candleCache = {};
+  for (const [symbol, trades] of Object.entries(symbolTrades)) {
+    let maxCandles = 10;
+    for (const t of trades) {
+      const tradeOpenTime = new Date(`${t.cols[0]}T${t.cols[1]}Z`).getTime();
+      const hoursSinceOpen = Math.ceil((Date.now() - tradeOpenTime) / (1000 * 60 * 60));
+      maxCandles = Math.max(maxCandles, hoursSinceOpen + 2);
+    }
+    maxCandles = Math.min(maxCandles, 500);
+    try {
+      candleCache[symbol] = await fetchCandles(symbol, "1H", maxCandles);
+    } catch (err) {
+      console.log(`  ⚠️ Could not fetch candles for ${symbol}: ${err.message}`);
+    }
+  }
+
   const openTrades = [];
   let csvModified = false;
 
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseCSVLine(lines[i]);
-    // 0=Date 1=Time 2=Exchange 3=Symbol 4=Strategy 5=Timeframe
-    // 6=Side 7=Qty 8=Entry 9=SL 10=TP1 11=TP2 12=R:R
-    // 13=Total 14=Fee 15=Net 16=OrderID 17=Mode 18=Status 19=Notes
+  for (const [symbol, trades] of Object.entries(symbolTrades)) {
+    const candles = candleCache[symbol];
+    if (!candles || candles.length === 0) continue;
 
-    if (cols[18] !== "OPEN") continue;
+    const currentPrice = candles[candles.length - 1].close;
 
-    const symbol = cols[3];
-    const side = cols[6];
-    const entryPrice = parseFloat(cols[8]);
-    const slDist = parseFloat(cols[9]) || entryPrice * 0.003;
-    const tp1Val = cols[10] ? parseFloat(cols[10]) : null;
-    const sizeUSD = parseFloat(cols[13]) || 10;
+    for (const { lineIndex, cols } of trades) {
+      // 0=Date 1=Time 2=Exchange 3=Symbol 4=Strategy 5=Timeframe
+      // 6=Side 7=Qty 8=Entry 9=SL 10=TP1 11=TP2 12=R:R
+      // 13=Total 14=Fee 15=Net 16=OrderID 17=Mode 18=Status 19=Notes
+      const side = cols[6];
+      const entryPrice = parseFloat(cols[8]);
+      const slDist = parseFloat(cols[9]) || entryPrice * 0.003;
+      const tp1Val = cols[10] ? parseFloat(cols[10]) : null;
+      const sizeUSD = parseFloat(cols[13]) || 10;
+      const tradeOpenTime = new Date(`${cols[0]}T${cols[1]}Z`).getTime();
 
-    let slPrice, tp1Price;
-    if (side === "BUY") {
-      slPrice = entryPrice - slDist;
-      tp1Price = tp1Val || entryPrice + slDist * 2;
-    } else {
-      slPrice = entryPrice + slDist;
-      tp1Price = tp1Val || entryPrice - slDist * 2;
-    }
+      const notes = cols[19] || "";
+      let slPrice, tp1Price;
+      if (side === "BUY") {
+        slPrice = entryPrice - slDist;
+        tp1Price = tp1Val || entryPrice + slDist * 2;
+      } else {
+        slPrice = entryPrice + slDist;
+        tp1Price = tp1Val || entryPrice - slDist * 2;
+      }
 
-    try {
-      const candles = await fetchCandles(symbol, "1H", 2);
-      const currentPrice = candles[candles.length - 1].close;
+      // Break-even: check if already triggered in a previous run
+      let breakEvenTriggered = notes.includes("BE:active");
+      const oneRLevel = side === "BUY" ? entryPrice + slDist : entryPrice - slDist;
+      if (breakEvenTriggered) slPrice = entryPrice; // SL already at entry
 
+      // Walk candles since trade opened — check if high/low ever hit TP or SL
+      let result = "OPEN";
+      let exitPrice = currentPrice;
+
+      for (const candle of candles) {
+        if (candle.time < tradeOpenTime) continue;
+
+        // Check if price reached 1R profit → trigger break-even
+        if (!breakEvenTriggered) {
+          const reachedOneR = side === "BUY"
+            ? candle.high >= oneRLevel
+            : candle.low <= oneRLevel;
+          if (reachedOneR) {
+            breakEvenTriggered = true;
+            slPrice = entryPrice; // move SL to entry
+          }
+        }
+
+        if (side === "BUY") {
+          const tpHit = candle.high >= tp1Price;
+          const slHit = candle.low <= slPrice;
+
+          if (tpHit && slHit) {
+            // Both levels touched in same candle — closer to open was hit first
+            const distToTP = Math.abs(candle.open - tp1Price);
+            const distToSL = Math.abs(candle.open - slPrice);
+            result = distToTP < distToSL ? "WIN" : "LOSS";
+            exitPrice = result === "WIN" ? tp1Price : slPrice;
+            break;
+          } else if (tpHit) {
+            result = "WIN";
+            exitPrice = tp1Price;
+            break;
+          } else if (slHit) {
+            result = "LOSS";
+            exitPrice = slPrice;
+            break;
+          }
+        } else {
+          // SELL
+          const tpHit = candle.low <= tp1Price;
+          const slHit = candle.high >= slPrice;
+
+          if (tpHit && slHit) {
+            const distToTP = Math.abs(candle.open - tp1Price);
+            const distToSL = Math.abs(candle.open - slPrice);
+            result = distToTP < distToSL ? "WIN" : "LOSS";
+            exitPrice = result === "WIN" ? tp1Price : slPrice;
+            break;
+          } else if (tpHit) {
+            result = "WIN";
+            exitPrice = tp1Price;
+            break;
+          } else if (slHit) {
+            result = "LOSS";
+            exitPrice = slPrice;
+            break;
+          }
+        }
+      }
+
+      // Persist break-even state to CSV if newly triggered and trade still open
+      if (breakEvenTriggered && !notes.includes("BE:active") && result === "OPEN") {
+        // Update SL column to entry price and notes to include BE:active
+        const csvCols = parseCSVLine(lines[lineIndex]);
+        csvCols[9] = "0.00"; // SL distance = 0 (at entry)
+        csvCols[19] = `"${(notes || "All conditions met").replace(/"/g, "")} | BE:active"`;
+        lines[lineIndex] = csvCols.join(",");
+        csvModified = true;
+        await sendTelegram(
+          `🔒 <b>BREAK-EVEN</b>\n\n` +
+          `${symbol} ${side} — SL moved to entry\n` +
+          `Entry: $${entryPrice.toFixed(2)} | 1R reached at $${oneRLevel.toFixed(2)}\n` +
+          `Now a free trade — worst case $0`
+        );
+      }
+
+      // Dynamic exit — check if chart says "get out" even before TP/SL
+      if (result === "OPEN") {
+        const hoursOpen = (Date.now() - tradeOpenTime) / (1000 * 60 * 60);
+        if (hoursOpen >= 3) {
+          const strategy = cols[4];
+          const exitCheck = shouldExitEarly(candles, side, entryPrice, strategy, tp1Price);
+          if (exitCheck.shouldExit) {
+            exitPrice = currentPrice;
+            const earlyPnlRaw = side === "BUY"
+              ? (exitPrice - entryPrice) / entryPrice
+              : (entryPrice - exitPrice) / entryPrice;
+            result = earlyPnlRaw >= 0 ? "WIN" : "LOSS";
+
+            // Update CSV status and notes
+            const csvCols2 = parseCSVLine(lines[lineIndex]);
+            csvCols2[18] = result;
+            csvCols2[19] = `"Early exit: ${exitCheck.reason}"`;
+            lines[lineIndex] = csvCols2.join(",");
+            csvModified = true;
+
+            recordClosedTrade(portfolio, symbol, side, earlyPnlRaw * sizeUSD, result);
+            await sendTelegram(
+              `⚡ <b>EARLY EXIT</b>\n\n` +
+              `${symbol} ${side} — ${exitCheck.reason}\n` +
+              `Entry: $${entryPrice.toFixed(2)}\n` +
+              `Exit: $${exitPrice.toFixed(2)}\n` +
+              `P&L: ${earlyPnlRaw >= 0 ? "+" : ""}$${(earlyPnlRaw * sizeUSD).toFixed(2)} (${(earlyPnlRaw * 100).toFixed(2)}%)` +
+              buildPortfolioBlock(portfolio)
+            );
+          }
+        }
+      }
+
+      // Calculate P&L based on exit (TP/SL/early) or current price (still open)
+      const pnlPrice = result === "OPEN" ? currentPrice : exitPrice;
       const pnlRaw = side === "BUY"
-        ? (currentPrice - entryPrice) / entryPrice
-        : (entryPrice - currentPrice) / entryPrice;
+        ? (pnlPrice - entryPrice) / entryPrice
+        : (entryPrice - pnlPrice) / entryPrice;
       const pnlUSD = pnlRaw * sizeUSD;
       const pnlPct = pnlRaw * 100;
 
-      let result = "OPEN";
-      if ((side === "BUY" && currentPrice <= slPrice) || (side === "SELL" && currentPrice >= slPrice)) {
-        result = "LOSS";
-        lines[i] = lines[i].replace(/,OPEN,"/, `,LOSS,"`);
+      if (result === "LOSS") {
+        lines[lineIndex] = lines[lineIndex].replace(/,OPEN,"/, `,LOSS,"`);
         csvModified = true;
         recordClosedTrade(portfolio, symbol, side, pnlUSD, "LOSS");
         await sendTelegram(
           `🔴 <b>STOP LOSS HIT</b>\n\n` +
           `${symbol} ${side}\n` +
           `Entry: $${entryPrice.toFixed(2)}\n` +
-          `Exit: $${currentPrice.toFixed(2)}\n` +
+          `Exit: $${exitPrice.toFixed(2)}\n` +
           `P&L: $${pnlUSD.toFixed(2)} (${pnlPct.toFixed(2)}%)` +
           buildPortfolioBlock(portfolio)
         );
-      } else if ((side === "BUY" && currentPrice >= tp1Price) || (side === "SELL" && currentPrice <= tp1Price)) {
-        result = "WIN";
-        lines[i] = lines[i].replace(/,OPEN,"/, `,WIN,"`);
+      } else if (result === "WIN") {
+        lines[lineIndex] = lines[lineIndex].replace(/,OPEN,"/, `,WIN,"`);
         csvModified = true;
         recordClosedTrade(portfolio, symbol, side, pnlUSD, "WIN");
         await sendTelegram(
           `🟢 <b>TAKE PROFIT HIT</b>\n\n` +
           `${symbol} ${side}\n` +
           `Entry: $${entryPrice.toFixed(2)}\n` +
-          `Exit: $${currentPrice.toFixed(2)}\n` +
+          `Exit: $${exitPrice.toFixed(2)}\n` +
           `P&L: +$${pnlUSD.toFixed(2)} (+${pnlPct.toFixed(2)}%)` +
           buildPortfolioBlock(portfolio)
         );
       }
 
-      openTrades.push({ symbol, side, entryPrice, currentPrice, slPrice, tp1Price, pnlUSD, pnlPct, result, sizeUSD });
-    } catch (err) {
-      // Can't fetch price — skip this trade
+      openTrades.push({
+        symbol, side, entryPrice,
+        currentPrice: result === "OPEN" ? currentPrice : exitPrice,
+        slPrice, tp1Price, pnlUSD, pnlPct, result, sizeUSD,
+      });
     }
   }
 
@@ -687,21 +909,59 @@ function runStrategy2Check(price, ema21, ema50, rsi14, macd, atr) {
 
 // ─── Trade Limits ───────────────────────────────────────────────────────────
 
-function checkTradeLimits(log) {
+function checkTradeLimits(log, portfolio) {
   const todayCount = countTodaysTrades(log);
+  const capital = portfolio ? portfolio.initialCapital : CONFIG.portfolioValue;
 
   console.log("\n── Trade Limits ─────────────────────────────────────────\n");
 
+  // Max trades per day
   if (todayCount >= CONFIG.maxTradesPerDay) {
     console.log(
       `🚫 Max trades per day reached: ${todayCount}/${CONFIG.maxTradesPerDay}`,
     );
+    checkTradeLimits._lastReason = `10/10 trades done for today. Resumes tomorrow.`;
     return false;
   }
 
   console.log(
     `✅ Trades today: ${todayCount}/${CONFIG.maxTradesPerDay} — within limit`,
   );
+
+  // Daily loss circuit breaker: 20% of capital
+  if (portfolio) {
+    const dailyLossLimit = capital * -0.20;
+    if (portfolio.todayPnL <= dailyLossLimit) {
+      console.log(
+        `🛑 Daily loss circuit breaker: $${portfolio.todayPnL.toFixed(2)} exceeds -20% ($${dailyLossLimit.toFixed(2)})`,
+      );
+      console.log(`   No new entries — open positions still monitored.`);
+      checkTradeLimits._lastReason = `Daily loss circuit breaker: $${portfolio.todayPnL.toFixed(2)} lost today (>${Math.abs(dailyLossLimit).toFixed(0)}% of capital). Review your strategy. Resumes tomorrow.`;
+      return false;
+    }
+    console.log(
+      `✅ Today P&L: $${portfolio.todayPnL.toFixed(2)} — within daily loss limit ($${dailyLossLimit.toFixed(2)})`,
+    );
+
+    // Weekly loss circuit breaker: 40% of capital over 7 days
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    const weeklyPnL = (portfolio.closedTrades || [])
+      .filter((t) => new Date(t.date) >= oneWeekAgo)
+      .reduce((sum, t) => sum + t.pnlUSD, 0);
+    const weeklyLossLimit = capital * -0.40;
+    if (weeklyPnL <= weeklyLossLimit) {
+      console.log(
+        `🛑 Weekly loss circuit breaker: $${weeklyPnL.toFixed(2)} exceeds -40% ($${weeklyLossLimit.toFixed(2)})`,
+      );
+      console.log(`   No new entries — open positions still monitored.`);
+      checkTradeLimits._lastReason = `Weekly loss circuit breaker: $${weeklyPnL.toFixed(2)} lost this week (>${Math.abs(weeklyLossLimit).toFixed(0)}% of capital). Serious review needed. Resumes as losses roll off the 7-day window.`;
+      return false;
+    }
+    console.log(
+      `✅ Week P&L: $${weeklyPnL.toFixed(2)} — within weekly loss limit ($${weeklyLossLimit.toFixed(2)})`,
+    );
+  }
 
   const tradeSize = Math.min(
     CONFIG.portfolioValue * 0.01,
@@ -809,6 +1069,39 @@ function initCsv() {
         `📄 Upgraded ${CSV_FILE} headers (old data backed up → trades-backup.csv)`,
       );
     }
+
+    // One-time cleanup: mark ghost positions (OPEN but no order ID) as SKIPPED
+    const content = readFileSync(CSV_FILE, "utf8");
+    const lines = content.split("\n");
+    let cleaned = 0;
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const cols = parseCSVLine(lines[i]);
+      // cols[16]=OrderID, cols[18]=Status
+      if (cols[18] === "OPEN" && (!cols[16] || cols[16].trim() === "")) {
+        lines[i] = lines[i].replace(/,OPEN,"/, `,SKIPPED,"`);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      writeFileSync(CSV_FILE, lines.join("\n"));
+      console.log(`🧹 Cleaned ${cleaned} ghost positions (OPEN with no order ID → SKIPPED)`);
+    }
+  }
+}
+
+function resetPortfolioIfCorrupted() {
+  if (!existsSync(PORTFOLIO_FILE)) return;
+  const p = JSON.parse(readFileSync(PORTFOLIO_FILE, "utf8"));
+  // If portfolio has losses but 0 wins, and total trades > 10, likely corrupted by ghosts
+  if (p.totalWins === 0 && p.totalLosses > 10 && p.closedTrades.length > 10) {
+    console.log(`🧹 Portfolio stats look corrupted by ghost trades — resetting counters`);
+    p.totalPnL = 0;
+    p.totalWins = 0;
+    p.totalLosses = 0;
+    p.todayPnL = 0;
+    p.closedTrades = [];
+    savePortfolio(p);
   }
 }
 
@@ -840,6 +1133,12 @@ function writeTradeCsv(logEntry) {
     status = "BLOCKED";
     orderId = "BLOCKED";
     notes = `Failed: ${failed}`;
+  } else if (logEntry.allPass && !logEntry.orderPlaced) {
+    // Conditions met but trade not placed (daily limit, duplicate, circuit breaker)
+    side = logEntry.side || "";
+    mode = logEntry.paperTrading ? "PAPER" : "LIVE";
+    status = "SKIPPED";
+    notes = "Conditions met — skipped (limit/duplicate)";
   } else if (logEntry.paperTrading) {
     side = logEntry.side || "BUY";
     quantity = (logEntry.tradeSize / logEntry.price).toFixed(6);
@@ -1122,19 +1421,31 @@ async function runStrategyOnSymbol(strategy, symbol, log) {
 
     console.log(`✅ ALL CONDITIONS MET`);
 
-    // Calculate TP targets for S1/S2 (S3 sets its own)
-    const slDist = stopLoss || price * 0.003;
-    if (!logEntry.tp1) {
-      if (side === "BUY" || side === "buy") {
-        logEntry.slPrice = price - slDist;
-        logEntry.tp1 = price + slDist * 2;
-        logEntry.tp2 = price + slDist * 3;
-      } else {
-        logEntry.slPrice = price + slDist;
-        logEntry.tp1 = price - slDist * 2;
-        logEntry.tp2 = price - slDist * 3;
-      }
-      logEntry.rr1 = 2;
+    // Dynamic R:R — use key levels from chart structure
+    const targets = findDynamicTargets(candles, price, side);
+    if (targets.skipTrade) {
+      console.log(`⏭️  R:R too low (${targets.rr1.toFixed(1)}:1) — no clear target. Skipping.`);
+      runResults.push({
+        symbol, strategy: stratName, status: "SKIPPED",
+        reason: `R:R too low (${targets.rr1.toFixed(1)})`, price,
+      });
+      log.trades.push(logEntry);
+      writeTradeCsv(logEntry);
+      return logEntry;
+    }
+
+    logEntry.slPrice = targets.sl;
+    logEntry.stopLoss = targets.slDist;
+    logEntry.tp1 = targets.tp1;
+    logEntry.tp2 = targets.tp2;
+    logEntry.rr1 = targets.rr1;
+
+    console.log(`   Key levels → SL: $${targets.sl.toFixed(2)} | TP1: $${targets.tp1.toFixed(2)} (${targets.rr1.toFixed(1)}R) | TP2: $${targets.tp2.toFixed(2)} (${targets.rr2.toFixed(1)}R)`);
+    if (targets.levels.support.length > 0) {
+      console.log(`   Support: ${targets.levels.support.map((l) => `$${l.price.toFixed(2)} (${l.type})`).join(", ")}`);
+    }
+    if (targets.levels.resistance.length > 0) {
+      console.log(`   Resistance: ${targets.levels.resistance.map((l) => `$${l.price.toFixed(2)} (${l.type})`).join(", ")}`);
     }
 
     if (CONFIG.paperTrading) {
@@ -1142,7 +1453,7 @@ async function runStrategyOnSymbol(strategy, symbol, log) {
         `\n📋 PAPER TRADE — would ${side} ${symbol} ~$${tradeSize.toFixed(2)} at market`,
       );
       console.log(
-        `   Entry: $${price.toFixed(2)} | SL: $${(logEntry.slPrice || price - slDist).toFixed(2)} | TP1: $${logEntry.tp1.toFixed(2)} (2R)`,
+        `   Entry: $${price.toFixed(2)} | SL: $${targets.sl.toFixed(2)} | TP1: $${targets.tp1.toFixed(2)} (${targets.rr1.toFixed(1)}R)`,
       );
       console.log(
         `   (Set PAPER_TRADING=false in .env to place real orders)`,
@@ -1168,9 +1479,9 @@ async function runStrategyOnSymbol(strategy, symbol, log) {
     runResults.push({
       symbol, strategy: stratName, status: "TRADE",
       side: side.toUpperCase(), price,
-      sl: (logEntry.slPrice || price - slDist).toFixed(2),
-      tp1: logEntry.tp1 ? logEntry.tp1.toFixed(2) : null,
-      rr: logEntry.rr1 || 2,
+      sl: logEntry.slPrice.toFixed(2),
+      tp1: logEntry.tp1.toFixed(2),
+      rr: logEntry.rr1,
       sizeUSD: tradeSize,
     });
 
@@ -1178,14 +1489,13 @@ async function runStrategyOnSymbol(strategy, symbol, log) {
     const stratShort = stratName
       .replace("Strategy 1: VWAP + RSI(3) + EMA(8)", "S1 VWAP")
       .replace("Strategy 2: EMA Crossover + MACD + RSI(14)", "S2 EMA");
-    const slPriceStr = (logEntry.slPrice || price - slDist).toFixed(2);
     await sendTelegram(
       `🚨 <b>TRADE ALERT</b>\n\n` +
       `${CONFIG.paperTrading ? "📋 Paper" : "🔴 Live"} | ${stratShort}\n` +
       `<b>${side.toUpperCase()} ${symbol}</b>\n\n` +
       `Entry: $${price.toFixed(2)}\n` +
-      `SL: $${slPriceStr}\n` +
-      `TP1: $${logEntry.tp1.toFixed(2)} (${logEntry.rr1 || 2}R)\n` +
+      `SL: $${logEntry.slPrice.toFixed(2)}\n` +
+      `TP1: $${logEntry.tp1.toFixed(2)} (${logEntry.rr1.toFixed(1)}R)\n` +
       `Size: $${tradeSize.toFixed(2)}`
     );
   }
@@ -1202,6 +1512,7 @@ async function runStrategyOnSymbol(strategy, symbol, log) {
 async function run() {
   checkOnboarding();
   initCsv();
+  resetPortfolioIfCorrupted();
 
   console.log("═══════════════════════════════════════════════════════════");
   console.log("  Claude Trading Bot — Multi-Strategy");
@@ -1235,11 +1546,24 @@ async function run() {
     console.log("  No open trades");
   }
 
-  // Load log and check daily limits
+  // Load log and check daily limits + circuit breakers
   const log = loadLog();
-  const tradeLimitReached = !checkTradeLimits(log);
+  const tradeLimitReached = !checkTradeLimits(log, portfolio);
   if (tradeLimitReached) {
-    console.log("\n⚠️  Daily trade limit reached — analysis will still run but no new entries.");
+    console.log("\n⚠️  Trade limits active — skipping strategy analysis. Open positions still monitored.");
+    const limitReason = checkTradeLimits._lastReason || "Trade limit reached";
+    await sendTelegram(
+      `🛑 <b>Trading Paused</b>\n\n` +
+      `${limitReason}\n\n` +
+      `Open positions still monitored for TP/SL.` +
+      buildPortfolioBlock(portfolio)
+    );
+    const summary = buildTelegramSummary(openTradeUpdates, portfolio);
+    if (summary) await sendTelegram(summary);
+    saveLog(log);
+    console.log(`\nDecision log saved → ${LOG_FILE}`);
+    console.log("═══════════════════════════════════════════════════════════\n");
+    return;
   }
 
   // Run each strategy on each symbol
