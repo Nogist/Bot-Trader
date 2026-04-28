@@ -1,0 +1,12 @@
+# Data files — don't overwrite on deploy (Railway preserves existing files)
+trades.csv
+trades-backup.csv
+portfolio.json
+strategies/strategy3/state.json
+safety-check-log.json
+
+# Dev files
+.env
+.git
+.gitignore
+*.md
