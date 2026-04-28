@@ -274,7 +274,7 @@ function parseCSVLine(line) {
 
 // ─── Dynamic Exit Engine ──────────────────────────────────────────────────
 
-function shouldExitEarly(candles, side, entryPrice, strategy, tp1Price) {
+function shouldExitEarly(candles, side, entryPrice, strategy, tp1Price, hoursOpen) {
   if (!candles || candles.length < 30) return { shouldExit: false };
 
   const closes = candles.map((c) => c.close);
@@ -283,20 +283,50 @@ function shouldExitEarly(candles, side, entryPrice, strategy, tp1Price) {
     ? (price - entryPrice) / entryPrice
     : (entryPrice - price) / entryPrice;
 
+  // How far back to check for structure breaks — covers sleep gaps
+  // If bot was asleep 11 hours, check last 12 candles (not just 5)
+  const chochLookback = Math.max(5, Math.min(Math.ceil(hoursOpen || 5), 24));
+
   // 1. Structure break — CHoCH against position (always triggers exit)
   try {
     const structure = analyzeStructure(candles, 3);
-    const minIndex = candles.length - 5; // only last 5 candles
+    const minIndex = candles.length - chochLookback;
     const recentCHoCH = structure.events.filter(
       (e) => e.type === "CHoCH" && e.index >= minIndex,
     );
+
+    // Count CHoCH events against us — single might be noise, multiple = confirmed reversal
+    let chochAgainst = 0;
+    let lastChochReason = "";
     for (const event of recentCHoCH) {
       if (side === "BUY" && event.direction === "bearish") {
-        return { shouldExit: true, reason: "Bearish CHoCH — structure broke against long" };
+        chochAgainst++;
+        lastChochReason = "Bearish CHoCH — structure broke against long";
       }
       if (side === "SELL" && event.direction === "bullish") {
-        return { shouldExit: true, reason: "Bullish CHoCH — structure broke against short" };
+        chochAgainst++;
+        lastChochReason = "Bullish CHoCH — structure broke against short";
       }
+    }
+
+    // Also check: did the structure RECOVER after the break?
+    // If latest trend matches our side, the break may have been a fakeout
+    const currentTrend = structure.currentTrend;
+    const trendMatchesSide =
+      (side === "BUY" && currentTrend === "bullish") ||
+      (side === "SELL" && currentTrend === "bearish");
+
+    if (chochAgainst > 0) {
+      if (chochAgainst >= 2) {
+        // Multiple CHoCH against us — confirmed reversal, exit regardless
+        return { shouldExit: true, reason: `${lastChochReason} (${chochAgainst}x confirmed)` };
+      }
+      if (!trendMatchesSide) {
+        // Single CHoCH + current trend still against us — exit
+        return { shouldExit: true, reason: lastChochReason };
+      }
+      // Single CHoCH but trend recovered — fakeout, stay in trade
+      console.log(`  ℹ️  CHoCH detected but trend recovered to ${currentTrend} — holding position`);
     }
   } catch {
     // Structure analysis failed — skip this check
@@ -501,7 +531,7 @@ async function checkOpenPaperTrades(portfolio) {
         const hoursOpen = (Date.now() - tradeOpenTime) / (1000 * 60 * 60);
         if (hoursOpen >= 3) {
           const strategy = cols[4];
-          const exitCheck = shouldExitEarly(candles, side, entryPrice, strategy, tp1Price);
+          const exitCheck = shouldExitEarly(candles, side, entryPrice, strategy, tp1Price, hoursOpen);
           if (exitCheck.shouldExit) {
             exitPrice = currentPrice;
             const earlyPnlRaw = side === "BUY"
