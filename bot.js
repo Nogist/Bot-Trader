@@ -38,7 +38,6 @@ function checkOnboarding() {
         "# Trading config",
         "PORTFOLIO_VALUE_USD=1000",
         "MAX_TRADE_SIZE_USD=100",
-        "MAX_TRADES_PER_DAY=10",
         "PAPER_TRADING=true",
         "SYMBOLS=BTCUSDT",
       ].join("\n") + "\n",
@@ -70,7 +69,7 @@ const CONFIG = {
   symbols: (process.env.SYMBOLS || "BTCUSDT").split(",").map((s) => s.trim()),
   portfolioValue: parseFloat(process.env.PORTFOLIO_VALUE_USD || "1000"),
   maxTradeSizeUSD: parseFloat(process.env.MAX_TRADE_SIZE_USD || "100"),
-  maxTradesPerDay: parseInt(process.env.MAX_TRADES_PER_DAY || "10"),
+  // No max trade count — circuit breakers + duplicate prevention handle risk
   paperTrading: process.env.PAPER_TRADING !== "false",
   tradeMode: process.env.TRADE_MODE || "spot",
   bitget: {
@@ -915,17 +914,8 @@ function checkTradeLimits(log, portfolio) {
 
   console.log("\n── Trade Limits ─────────────────────────────────────────\n");
 
-  // Max trades per day
-  if (todayCount >= CONFIG.maxTradesPerDay) {
-    console.log(
-      `🚫 Max trades per day reached: ${todayCount}/${CONFIG.maxTradesPerDay}`,
-    );
-    checkTradeLimits._lastReason = `10/10 trades done for today. Resumes tomorrow.`;
-    return false;
-  }
-
   console.log(
-    `✅ Trades today: ${todayCount}/${CONFIG.maxTradesPerDay} — within limit`,
+    `✅ Trades today: ${todayCount} (no max — duplicates blocked per symbol/strategy)`,
   );
 
   // Daily loss circuit breaker: 20% of capital
@@ -1378,7 +1368,6 @@ async function runStrategyOnSymbol(strategy, symbol, log) {
     paperTrading: CONFIG.paperTrading,
     limits: {
       maxTradeSizeUSD: CONFIG.maxTradeSizeUSD,
-      maxTradesPerDay: CONFIG.maxTradesPerDay,
       tradesToday: countTodaysTrades(log),
     },
   };
@@ -1395,17 +1384,7 @@ async function runStrategyOnSymbol(strategy, symbol, log) {
       reason: failed[0], price,
     });
   } else {
-    // Check daily trade limit
-    if (countTodaysTrades(log) >= CONFIG.maxTradesPerDay) {
-      console.log(`⏭️  ALL CONDITIONS MET — but daily trade limit reached (${CONFIG.maxTradesPerDay}). Skipping entry.`);
-      runResults.push({
-        symbol, strategy: stratName, status: "SKIPPED",
-        reason: "Daily limit reached", price,
-      });
-      log.trades.push(logEntry);
-      writeTradeCsv(logEntry);
-      return logEntry;
-    }
+    // No max trade count — duplicate prevention per symbol/strategy handles spam
 
     // Check if we already have an open position on this symbol from this strategy
     if (hasOpenPosition(symbol, stratName)) {
@@ -1546,12 +1525,12 @@ async function run() {
     console.log("  No open trades");
   }
 
-  // Load log and check daily limits + circuit breakers
+  // Load log and check circuit breakers (no max trade count — duplicates blocked per symbol/strategy)
   const log = loadLog();
-  const tradeLimitReached = !checkTradeLimits(log, portfolio);
-  if (tradeLimitReached) {
-    console.log("\n⚠️  Trade limits active — skipping strategy analysis. Open positions still monitored.");
-    const limitReason = checkTradeLimits._lastReason || "Trade limit reached";
+  const circuitBreakerTripped = !checkTradeLimits(log, portfolio);
+  if (circuitBreakerTripped) {
+    console.log("\n⚠️  Circuit breaker active — skipping strategy analysis. Open positions still monitored.");
+    const limitReason = checkTradeLimits._lastReason || "Circuit breaker tripped";
     await sendTelegram(
       `🛑 <b>Trading Paused</b>\n\n` +
       `${limitReason}\n\n` +
@@ -1594,16 +1573,6 @@ async function run() {
       );
 
       if (s3Result && s3Result.decision === "ENTER" && s3Result.trade) {
-        // Check daily trade limit
-        if (countTodaysTrades(log) >= CONFIG.maxTradesPerDay) {
-          console.log(`  ⏭️  S3 entry signal — but daily trade limit reached. Skipping entry.`);
-          runResults.push({
-            symbol, strategy: "Strategy 3: SMC Liquidity Sweep", status: "SKIPPED",
-            reason: "Daily limit reached", price: s3Result.trade.entryPrice,
-          });
-          continue;
-        }
-
         // Check if we already have an open position on this symbol from S3
         if (hasOpenPosition(symbol, "Strategy 3: SMC Liquidity Sweep")) {
           console.log(`  ⏭️  S3 entry signal — but ${symbol} already has an open S3 position. Skipping.`);
@@ -1638,7 +1607,6 @@ async function run() {
           paperTrading: CONFIG.paperTrading,
           limits: {
             maxTradeSizeUSD: CONFIG.maxTradeSizeUSD,
-            maxTradesPerDay: CONFIG.maxTradesPerDay,
             tradesToday: countTodaysTrades(log),
           },
         };

@@ -1,7 +1,1 @@
 Date,Time (UTC),Exchange,Symbol,Strategy,Timeframe,Side,Quantity,Entry Price,Stop Loss,TP1,TP2,R:R,Total USD,Fee (est.),Net Amount,Order ID,Mode,Status,Notes
-2026-04-27,15:31:58,BitGet,ETHUSDT,Strategy 1: VWAP + RSI(3) + EMA(8),1H,,,2283.71,,,,,,,,BLOCKED,BLOCKED,BLOCKED,"Failed: RSI(3) above 70 (reversal setup in downtrend); Price within 1.5% of VWAP (not overextended)"
-2026-04-27,15:31:58,BitGet,SOLUSDT,Strategy 1: VWAP + RSI(3) + EMA(8),1H,,,84.27,,,,,,,,BLOCKED,BLOCKED,BLOCKED,"Failed: RSI(3) above 70 (reversal setup in downtrend); Price within 1.5% of VWAP (not overextended)"
-2026-04-27,15:31:59,BitGet,BTCUSDT,Strategy 2: EMA Crossover + MACD + RSI(14),4H,,,77040.00,,,,,,,,BLOCKED,BLOCKED,BLOCKED,"Failed: Price above EMA(21) (riding the trend); MACD histogram positive (momentum confirmed)"
-2026-04-27,15:31:59,BitGet,ETHUSDT,Strategy 2: EMA Crossover + MACD + RSI(14),4H,,,2284.17,,,,,,,,BLOCKED,BLOCKED,BLOCKED,"Failed: Price above EMA(21) (riding the trend); MACD histogram positive (momentum confirmed)"
-2026-04-27,16:23:21,BitGet,BTCUSDT,Strategy 1: VWAP + RSI(3) + EMA(8),1H,,,76780.00,,,,,,,,BLOCKED,BLOCKED,BLOCKED,"Failed: RSI(3) above 70 (reversal setup in downtrend)"
-2026-04-27,16:23:21,BitGet,ETHUSDT,Strategy 1: VWAP + RSI(3) + EMA(8),1H,,,2277.37,,,,,,,,BLOCKED,BLOCKED,BLOCKED,"Failed: RSI(3) above 70 (reversal setup in downtrend); Price within 1.5% of VWAP (not overextended)"
