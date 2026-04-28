@@ -1648,12 +1648,13 @@ async function run() {
           `🚨 <b>TRADE ALERT</b>\n\n` +
           `${CONFIG.paperTrading ? "📋 Paper" : "🔴 Live"} | S3 SMC\n` +
           `<b>${t.side.toUpperCase()} ${symbol}</b>\n\n` +
+          `Confidence: ${t.confidence === "HIGH" ? "🟢 HIGH" : "🟡 MEDIUM"} — ${t.confidenceReason || ""}\n` +
           `Entry: $${price.toFixed(2)}\n` +
           `SL: $${t.slPrice.toFixed(2)}\n` +
           `TP1: $${t.tp1.toFixed(2)} (${t.rr1.toFixed(1)}R)\n` +
           `TP2: $${t.tp2.toFixed(2)} (${t.rr2.toFixed(1)}R)\n` +
-          `Size: $${tradeSize.toFixed(2)}\n` +
-          `Sweep: ${t.entryZone || "N/A"}`
+          `Size: $${tradeSize.toFixed(2)}` +
+          (t.biasWarning ? `\n⚠️ HTF bias (${t.htfTrend}) conflicts — HIGH confidence override` : "")
         );
 
         log.trades.push(logEntry);

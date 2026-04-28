@@ -121,6 +121,7 @@ export async function run(symbol, fetchCandles, log, equity, maxTradeSizeUSD) {
       htfTrend: htfStructure.currentTrend,
       ltfEvents: ltfStructure.events.slice(-10),
       latestCandleIndex: htfCandles.length - 1,
+      htfCandles,
     });
 
     audit(`State: ${smResult.currentState}`);
@@ -189,9 +190,15 @@ export async function run(symbol, fetchCandles, log, equity, maxTradeSizeUSD) {
         },
         htfTrend: d.htfTrend,
         biasAligned: d.biasAligned,
+        biasWarning: d.biasWarning || false,
+        confidence: d.confidence,
+        confidenceReason: d.confidenceReason,
       };
 
+      const confIcon = d.confidence === "HIGH" ? "🟢" : "🟡";
+      const biasNote = d.biasWarning ? ` ⚠️ bias: ${d.htfTrend}` : "";
       console.log(`  ✅ ENTRY SIGNAL: ${d.side.toUpperCase()} ${symbol}`);
+      console.log(`     Confidence: ${confIcon} ${d.confidence} — ${d.confidenceReason}${biasNote}`);
       console.log(`     Entry: $${d.entryPrice.toFixed(2)}`);
       console.log(`     SL:    $${d.slPrice.toFixed(2)}`);
       console.log(`     TP1:   $${targets.tp1.toFixed(2)} (${targets.rr1.toFixed(1)}R)`);

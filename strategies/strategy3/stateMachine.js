@@ -105,7 +105,7 @@ function transition(symbolState, newState, data = {}, reason = "") {
  *
  * @param {string} symbol - trading pair
  * @param {Object} analysis - combined analysis from all detectors
- *   { consolidation, sweeps, structure, fvgs, orderBlocks, price, atr, htfTrend }
+ *   { consolidation, sweeps, structure, fvgs, orderBlocks, price, atr, htfTrend, htfCandles }
  * @returns {{ action: string|null, details: Object, stateTransitions: Array }}
  */
 export function processStateMachine(symbol, analysis) {
@@ -125,6 +125,7 @@ export function processStateMachine(symbol, analysis) {
     atr,
     htfTrend,
     ltfEvents,
+    htfCandles,
   } = analysis;
 
   let action = null;
@@ -244,23 +245,84 @@ export function processStateMachine(symbol, analysis) {
     }
   }
 
-  // ─── State: AWAITING_ENTRY ──────────────────────────────────────
+  // ─── State: AWAITING_ENTRY (with candle walking + confidence) ───
   if (symState.state === STATES.AWAITING_ENTRY) {
     const zone = symState.setup?.entryZone;
     const setupDir = symState.setup?.sweep?.direction;
 
     if (zone) {
-      // Check if price has reached the entry zone
-      const inZone = price >= zone.low && price <= zone.high;
+      const buffer = atr * (CONFIG.entry?.zoneBufferATR || 0.3);
+      const zoneLow = zone.low - buffer;
+      const zoneHigh = zone.high + buffer;
 
-      // HTF bias check
-      let biasAligned = true;
-      if (CONFIG.bias.enabled && htfTrend) {
-        biasAligned = htfTrend === setupDir || htfTrend === "undefined";
+      // 1. Check if price is currently in the widened zone
+      const inZoneNow = price >= zoneLow && price <= zoneHigh;
+
+      // 2. Walk recent candles to check if price passed through zone since last run
+      let zoneTouched = inZoneNow;
+      if (!inZoneNow && htfCandles && htfCandles.length > 0) {
+        const lookback = Math.min(symState.candlesSinceStateChange + 1, htfCandles.length);
+        for (let i = htfCandles.length - lookback; i < htfCandles.length; i++) {
+          const c = htfCandles[i];
+          if (c.low <= zoneHigh && c.high >= zoneLow) {
+            zoneTouched = true;
+            break;
+          }
+        }
       }
 
-      if (inZone && biasAligned) {
-        // ENTRY SIGNAL
+      // 3. Confidence scoring
+      let confidence = "NONE";
+      let confidenceReason = "Price hasn't reached entry zone";
+
+      if (zoneTouched) {
+        if (inZoneNow) {
+          confidence = "HIGH";
+          confidenceReason = "Price currently in entry zone";
+        } else {
+          const zoneCenter = (zone.low + zone.high) / 2;
+          // Positive = moved in setup direction, negative = reversed
+          const distFromZone = setupDir === "bullish"
+            ? price - zoneCenter
+            : zoneCenter - price;
+          const distATR = distFromZone / atr;
+
+          const highMax = CONFIG.entry?.confidence?.highMaxATR || 0.5;
+          const medMax = CONFIG.entry?.confidence?.medMaxATR || 1.0;
+
+          if (distATR < 0) {
+            confidence = "LOW";
+            confidenceReason = `Price reversed against ${setupDir} setup (${Math.abs(distATR).toFixed(1)} ATR wrong way)`;
+          } else if (distATR <= highMax) {
+            confidence = "HIGH";
+            confidenceReason = `Price barely moved from zone (${distATR.toFixed(1)} ATR)`;
+          } else if (distATR <= medMax) {
+            confidence = "MEDIUM";
+            confidenceReason = `Price moved ${distATR.toFixed(1)} ATR from zone — move underway but room left`;
+          } else {
+            confidence = "LOW";
+            confidenceReason = `Price moved ${distATR.toFixed(1)} ATR from zone — move already happened`;
+          }
+        }
+      }
+
+      // 4. HTF bias check — downgraded to warning (no longer kills setup)
+      let biasAligned = true;
+      let biasWarning = false;
+      if (CONFIG.bias.enabled && htfTrend) {
+        biasAligned = htfTrend === setupDir || htfTrend === "undefined";
+        if (!biasAligned) biasWarning = true;
+      }
+
+      // 5. Entry decision
+      // HIGH confidence: enter even with bias warning (strong setup)
+      // MEDIUM confidence: enter only if bias aligned
+      // LOW/NONE: skip
+      const shouldEnter =
+        (confidence === "HIGH") ||
+        (confidence === "MEDIUM" && !biasWarning);
+
+      if (shouldEnter) {
         const sweep = symState.setup.sweep;
         const slPrice = setupDir === "bullish"
           ? (sweep.sweepLow || sweep.level) - CONFIG.risk.slBufferMultiplier * atr
@@ -276,7 +338,10 @@ export function processStateMachine(symbol, analysis) {
           sweep: sweep,
           choch: symState.setup.choch,
           biasAligned,
+          biasWarning,
           htfTrend,
+          confidence,
+          confidenceReason,
         };
 
         symState.position = {
@@ -286,18 +351,20 @@ export function processStateMachine(symbol, analysis) {
           enteredAt: new Date().toISOString(),
         };
 
+        const biasNote = biasWarning ? ` (bias warning: HTF ${htfTrend})` : "";
         const t = transition(symState, STATES.IN_POSITION, {
           entryPrice: price,
           slPrice,
           direction: setupDir,
-        }, `Entering ${setupDir} at $${price.toFixed(2)}, SL $${slPrice.toFixed(2)}`);
+          confidence,
+        }, `${confidence} confidence — entering ${setupDir} at $${price.toFixed(2)}, SL $${slPrice.toFixed(2)}${biasNote}`);
         stateTransitions.push(t);
 
-      } else if (!biasAligned) {
-        const t = transition(symState, STATES.IDLE, {},
-          `HTF bias (${htfTrend}) conflicts with setup (${setupDir}) — skipping`);
-        stateTransitions.push(t);
-        symState.setup = null;
+      } else if (confidence === "MEDIUM" && biasWarning) {
+        // Log but don't kill — let TTL handle expiration
+        console.log(`  ⚠️  MEDIUM confidence but HTF bias (${htfTrend}) conflicts — waiting for better entry`);
+      } else if (confidence === "LOW" && zoneTouched) {
+        console.log(`  ⚠️  Zone touched but ${confidenceReason} — skipping this candle`);
       }
     }
 

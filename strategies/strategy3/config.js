@@ -57,8 +57,18 @@ const CONFIG = {
   stateTTL: {
     sweepToChoch: 6,        // candles after sweep to see CHoCH, else expire
     chochToEntry: 12,       // candles after CHoCH to reach FVG/OB entry zone
-    entryToFill: 20,        // candles waiting at entry zone before invalidation
+    entryToFill: 30,        // candles waiting at entry zone before invalidation (extended from 20)
     cooldownHTFCandles: 4,  // HTF candles to wait after closing a trade
+  },
+
+  // ─── Entry Zone & Confidence ──────────────────────────────────────
+  entry: {
+    zoneBufferATR: 0.3,     // widen FVG/OB zone by 0.3×ATR each side
+    confidence: {
+      highMaxATR: 0.5,      // price within 0.5 ATR of zone = HIGH confidence
+      medMaxATR: 1.0,       // price within 1.0 ATR of zone = MEDIUM confidence
+      // beyond 1.0 ATR = LOW (skip — move already happened)
+    },
   },
 
   // ─── HTF Bias Filter ──────────────────────────────────────────────
