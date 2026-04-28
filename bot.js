@@ -1403,15 +1403,21 @@ async function runStrategyOnSymbol(strategy, symbol, log) {
   };
 
   if (!allPass) {
-    const failed = results.filter((r) => !r.pass).map((r) => r.label);
+    const failed = results.filter((r) => !r.pass);
     console.log(`🚫 TRADE BLOCKED`);
     console.log(`   Failed conditions:`);
-    failed.forEach((f) => console.log(`   - ${f}`));
+    failed.forEach((f) => console.log(`   - ${f.label}`));
 
-    // Track for Telegram
+    // Build clear reason: "RSI(3): needed > 70, got 45.2"
+    const failReasons = failed.map((f) => {
+      const shortLabel = f.label.split("(")[0].trim();
+      return `${shortLabel}: need ${f.required}, got ${f.actual}`;
+    });
+
+    // Track for Telegram — show all failed conditions
     runResults.push({
       symbol, strategy: stratName, status: "BLOCKED",
-      reason: failed[0], price,
+      reason: failReasons.join("; "), price,
     });
   } else {
     // No max trade count — duplicate prevention per symbol/strategy handles spam
@@ -1433,10 +1439,10 @@ async function runStrategyOnSymbol(strategy, symbol, log) {
     // Dynamic R:R — use key levels from chart structure
     const targets = findDynamicTargets(candles, price, side);
     if (targets.skipTrade) {
-      console.log(`⏭️  R:R too low (${targets.rr1.toFixed(1)}:1) — no clear target. Skipping.`);
+      console.log(`⏭️  R:R too low (${targets.rr1.toFixed(1)}:1) — risking more than potential reward. Need 1.5:1 min. Skipping.`);
       runResults.push({
         symbol, strategy: stratName, status: "SKIPPED",
-        reason: `R:R too low (${targets.rr1.toFixed(1)})`, price,
+        reason: `R:R ${targets.rr1.toFixed(1)}:1 — would risk $1 to make $${targets.rr1.toFixed(2)} (need 1.5:1 min)`, price,
       });
       log.trades.push(logEntry);
       writeTradeCsv(logEntry);
