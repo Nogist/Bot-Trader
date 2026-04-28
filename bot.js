@@ -139,6 +139,17 @@ function buildPortfolioBlock(portfolio) {
   if (portfolio.totalWins + portfolio.totalLosses > 0) {
     const winRate = (portfolio.totalWins / (portfolio.totalWins + portfolio.totalLosses) * 100).toFixed(0);
     msg += ` | W:${portfolio.totalWins} L:${portfolio.totalLosses} (${winRate}% win rate)`;
+
+    // Profit factor — total winning $ / total losing $
+    const winningSum = (portfolio.closedTrades || [])
+      .filter(t => t.pnlUSD > 0)
+      .reduce((sum, t) => sum + t.pnlUSD, 0);
+    const losingSum = Math.abs((portfolio.closedTrades || [])
+      .filter(t => t.pnlUSD < 0)
+      .reduce((sum, t) => sum + t.pnlUSD, 0));
+    if (losingSum > 0) {
+      msg += ` | PF: ${(winningSum / losingSum).toFixed(2)}`;
+    }
   }
   return msg;
 }
@@ -512,9 +523,8 @@ async function checkOpenPaperTrades(portfolio) {
 
       // Persist break-even state to CSV if newly triggered and trade still open
       if (breakEvenTriggered && !notes.includes("BE:active") && result === "OPEN") {
-        // Update SL column to entry price and notes to include BE:active
+        // Only update notes — keep original SL distance intact for R:R tracking
         const csvCols = parseCSVLine(lines[lineIndex]);
-        csvCols[9] = "0.00"; // SL distance = 0 (at entry)
         csvCols[19] = `"${(notes || "All conditions met").replace(/"/g, "")} | BE:active"`;
         lines[lineIndex] = csvCols.join(",");
         csvModified = true;
@@ -546,13 +556,15 @@ async function checkOpenPaperTrades(portfolio) {
             lines[lineIndex] = csvCols2.join(",");
             csvModified = true;
 
-            recordClosedTrade(portfolio, symbol, side, earlyPnlRaw * sizeUSD, result);
+            const earlyFees = sizeUSD * 0.001 * 2;
+            const earlyPnlAfterFees = earlyPnlRaw * sizeUSD - earlyFees;
+            recordClosedTrade(portfolio, symbol, side, earlyPnlAfterFees, result);
             await sendTelegram(
               `⚡ <b>EARLY EXIT</b>\n\n` +
               `${symbol} ${side} — ${exitCheck.reason}\n` +
               `Entry: $${entryPrice.toFixed(2)}\n` +
               `Exit: $${exitPrice.toFixed(2)}\n` +
-              `P&L: ${earlyPnlRaw >= 0 ? "+" : ""}$${(earlyPnlRaw * sizeUSD).toFixed(2)} (${(earlyPnlRaw * 100).toFixed(2)}%)` +
+              `P&L: ${earlyPnlAfterFees >= 0 ? "+" : ""}$${earlyPnlAfterFees.toFixed(2)} (${(earlyPnlRaw * 100).toFixed(2)}%) [fees: -$${earlyFees.toFixed(2)}]` +
               buildPortfolioBlock(portfolio)
             );
           }
@@ -567,30 +579,37 @@ async function checkOpenPaperTrades(portfolio) {
       const pnlUSD = pnlRaw * sizeUSD;
       const pnlPct = pnlRaw * 100;
 
-      if (result === "LOSS") {
-        lines[lineIndex] = lines[lineIndex].replace(/,OPEN,"/, `,LOSS,"`);
+      if (result === "LOSS" || result === "WIN") {
+        // Safe CSV update — parse columns properly instead of regex
+        const csvCols3 = parseCSVLine(lines[lineIndex]);
+        csvCols3[18] = result;
+        lines[lineIndex] = csvCols3.join(",");
         csvModified = true;
-        recordClosedTrade(portfolio, symbol, side, pnlUSD, "LOSS");
-        await sendTelegram(
-          `🔴 <b>STOP LOSS HIT</b>\n\n` +
-          `${symbol} ${side}\n` +
-          `Entry: $${entryPrice.toFixed(2)}\n` +
-          `Exit: $${exitPrice.toFixed(2)}\n` +
-          `P&L: $${pnlUSD.toFixed(2)} (${pnlPct.toFixed(2)}%)` +
-          buildPortfolioBlock(portfolio)
-        );
-      } else if (result === "WIN") {
-        lines[lineIndex] = lines[lineIndex].replace(/,OPEN,"/, `,WIN,"`);
-        csvModified = true;
-        recordClosedTrade(portfolio, symbol, side, pnlUSD, "WIN");
-        await sendTelegram(
-          `🟢 <b>TAKE PROFIT HIT</b>\n\n` +
-          `${symbol} ${side}\n` +
-          `Entry: $${entryPrice.toFixed(2)}\n` +
-          `Exit: $${exitPrice.toFixed(2)}\n` +
-          `P&L: +$${pnlUSD.toFixed(2)} (+${pnlPct.toFixed(2)}%)` +
-          buildPortfolioBlock(portfolio)
-        );
+
+        // Deduct fees from P&L (0.1% entry + 0.1% exit)
+        const tradeFees = sizeUSD * 0.001 * 2;
+        const pnlAfterFees = pnlUSD - tradeFees;
+        recordClosedTrade(portfolio, symbol, side, pnlAfterFees, result);
+
+        if (result === "LOSS") {
+          await sendTelegram(
+            `🔴 <b>STOP LOSS HIT</b>\n\n` +
+            `${symbol} ${side}\n` +
+            `Entry: $${entryPrice.toFixed(2)}\n` +
+            `Exit: $${exitPrice.toFixed(2)}\n` +
+            `P&L: $${pnlAfterFees.toFixed(2)} (${pnlPct.toFixed(2)}%) [fees: -$${tradeFees.toFixed(2)}]` +
+            buildPortfolioBlock(portfolio)
+          );
+        } else {
+          await sendTelegram(
+            `🟢 <b>TAKE PROFIT HIT</b>\n\n` +
+            `${symbol} ${side}\n` +
+            `Entry: $${entryPrice.toFixed(2)}\n` +
+            `Exit: $${exitPrice.toFixed(2)}\n` +
+            `P&L: +$${pnlAfterFees.toFixed(2)} (+${pnlPct.toFixed(2)}%) [fees: -$${tradeFees.toFixed(2)}]` +
+            buildPortfolioBlock(portfolio)
+          );
+        }
       }
 
       openTrades.push({
@@ -906,10 +925,10 @@ function runStrategy2Check(price, ema21, ema50, rsi14, macd, atr) {
       price < ema21,
     );
     check(
-      "RSI(14) between 30-60 (bearish momentum)",
-      "30-60",
+      "RSI(14) between 15-50 (bearish momentum)",
+      "15-50",
       rsi14.toFixed(2),
-      rsi14 >= 30 && rsi14 <= 60,
+      rsi14 >= 15 && rsi14 <= 50,
     );
     check(
       "MACD histogram negative (momentum confirmed)",
