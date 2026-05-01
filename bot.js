@@ -161,6 +161,10 @@ const TELEGRAM = {
   chatId: process.env.TELEGRAM_CHAT_ID,
 };
 
+function escapeHTML(text) {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 async function sendTelegram(message) {
   if (!TELEGRAM.token || !TELEGRAM.chatId) return;
   try {
@@ -246,7 +250,7 @@ function buildTelegramSummary(openTradeUpdates, portfolio) {
           .replace("Strategy 3: SMC Liquidity Sweep", "S3 SMC");
 
         if (r.status === "BLOCKED") {
-          msg += `  ${stratShort}: ❌ ${r.reason}\n`;
+          msg += `  ${stratShort}: ❌ ${escapeHTML(r.reason)}\n`;
         } else if (r.status === "TRADE") {
           msg += `  ${stratShort}: ✅ ${r.side} $${r.price.toFixed(2)}\n`;
           msg += `     SL $${r.sl} | TP $${r.tp1}`;
@@ -254,9 +258,9 @@ function buildTelegramSummary(openTradeUpdates, portfolio) {
           if (r.sizeUSD) msg += ` | Size $${r.sizeUSD.toFixed(2)}`;
           msg += `\n`;
         } else if (r.status === "SKIPPED") {
-          msg += `  ${stratShort}: ⏭️ ${r.reason}\n`;
+          msg += `  ${stratShort}: ⏭️ ${escapeHTML(r.reason)}\n`;
         } else if (r.status === "IDLE") {
-          msg += `  ${stratShort}: ⏳ ${r.reason}\n`;
+          msg += `  ${stratShort}: ⏳ ${escapeHTML(r.reason)}\n`;
         }
       }
     }
