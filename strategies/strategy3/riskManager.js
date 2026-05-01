@@ -75,15 +75,18 @@ export function calculateTargets(direction, entryPrice, slPrice, opposingPools, 
 
   let tp1, tp2;
 
+  // Only use pools that give at least 1.5R — ignore ones too close to entry
+  const minTPDist = slDistance * 1.5;
+
   if (direction === "bullish") {
     // TP targets are above entry
-    const above = sorted.filter((p) => p.level > entryPrice);
+    const above = sorted.filter((p) => p.level > entryPrice && (p.level - entryPrice) >= minTPDist);
 
     tp1 = above.length > 0 ? above[0].level : entryPrice + fallbackRR * slDistance;
     tp2 = above.length > 1 ? above[1].level : entryPrice + (fallbackRR + 1) * slDistance;
   } else {
     // TP targets are below entry
-    const below = sorted.filter((p) => p.level < entryPrice);
+    const below = sorted.filter((p) => p.level < entryPrice && (entryPrice - p.level) >= minTPDist);
 
     tp1 = below.length > 0 ? below[0].level : entryPrice - fallbackRR * slDistance;
     tp2 = below.length > 1 ? below[1].level : entryPrice - (fallbackRR + 1) * slDistance;

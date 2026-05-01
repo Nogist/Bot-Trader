@@ -160,6 +160,18 @@ export async function run(symbol, fetchCandles, log, equity, maxTradeSizeUSD) {
       const targets = calculateTargets(d.direction, d.entryPrice, d.slPrice, opposingPools, htfATR);
       audit(`TP1: $${targets.tp1.toFixed(2)} (${targets.rr1.toFixed(1)}R) | TP2: $${targets.tp2.toFixed(2)} (${targets.rr2.toFixed(1)}R)`);
 
+      // Minimum R:R gate — don't risk more than potential reward
+      // Higher bar when trading against HTF trend (bias conflict = shallower targets)
+      const MIN_S3_RR = d.biasWarning ? 2.0 : 1.5;
+      if (targets.rr1 < MIN_S3_RR) {
+        const slDist = Math.abs(d.entryPrice - d.slPrice);
+        const tpDist = Math.abs(targets.tp1 - d.entryPrice);
+        const biasNote = d.biasWarning ? ` (raised from 1.5R — trading against ${d.htfTrend} HTF trend)` : "";
+        audit(`BLOCKED: R:R too low — TP1 is ${targets.rr1.toFixed(1)}R (need ${MIN_S3_RR}R min${biasNote}). Risking $${slDist.toFixed(2)} to make $${tpDist.toFixed(2)}`);
+        result.decision = "BLOCKED";
+        return result;
+      }
+
       // Execution costs
       const costs = modelExecutionCosts(sizing.sizeUSD, d.entryPrice, false);
       audit(`Est. fees: $${costs.fee.toFixed(4)} | Slippage: $${costs.slippage.toFixed(4)}`);

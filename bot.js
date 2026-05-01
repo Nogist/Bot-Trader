@@ -182,10 +182,16 @@ async function sendTelegram(message) {
 const runResults = [];
 
 function buildTelegramSummary(openTradeUpdates, portfolio) {
-  if (runResults.length === 0 && (!openTradeUpdates || openTradeUpdates.length === 0)) return null;
-
   const now = new Date().toISOString().slice(0, 16).replace("T", " ");
   let msg = `📊 <b>Bot Check — ${now} UTC</b>\n`;
+
+  // Always send a status — even when nothing happened
+  if (runResults.length === 0 && (!openTradeUpdates || openTradeUpdates.length === 0)) {
+    msg += `\n⏳ All quiet — no setups found, no open positions.`;
+    msg += `\nMode: ${CONFIG.paperTrading ? "📋 Paper" : "🔴 Live"}`;
+    if (portfolio) msg += buildPortfolioBlock(portfolio);
+    return msg;
+  }
 
   // ─── Open trade P&L updates ───
   if (openTradeUpdates && openTradeUpdates.length > 0) {
