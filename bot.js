@@ -164,7 +164,7 @@ const TELEGRAM = {
 async function sendTelegram(message) {
   if (!TELEGRAM.token || !TELEGRAM.chatId) return;
   try {
-    await fetch(`https://api.telegram.org/bot${TELEGRAM.token}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM.token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -173,6 +173,21 @@ async function sendTelegram(message) {
         parse_mode: "HTML",
       }),
     });
+    const data = await res.json();
+    if (!data.ok) {
+      console.log(`Telegram API error: ${data.description} (message length: ${message.length})`);
+      // Retry without HTML parse_mode if it's a parsing error
+      if (data.description && data.description.includes("parse")) {
+        await fetch(`https://api.telegram.org/bot${TELEGRAM.token}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: TELEGRAM.chatId,
+            text: message,
+          }),
+        });
+      }
+    }
   } catch (err) {
     console.log(`Telegram error: ${err.message}`);
   }
@@ -1599,6 +1614,7 @@ async function run() {
       buildPortfolioBlock(portfolio)
     );
     const summary = buildTelegramSummary(openTradeUpdates, portfolio);
+    console.log(`\n📨 Telegram summary: ${summary ? `${summary.length} chars` : "null"}`);
     if (summary) await sendTelegram(summary);
     saveLog(log);
     console.log(`\nDecision log saved → ${LOG_FILE}`);
@@ -1744,6 +1760,7 @@ async function run() {
 
   // ─── Send Telegram summary ─────────────────────────────────────
   const summary = buildTelegramSummary(openTradeUpdates, portfolio);
+  console.log(`\n📨 Telegram summary: ${summary ? `${summary.length} chars` : "null"}`);
   if (summary) await sendTelegram(summary);
 
   saveLog(log);
