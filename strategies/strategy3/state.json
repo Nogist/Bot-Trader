@@ -1,10 +1,292 @@
 {
   "SOLUSDT": {
-    "state": "IDLE",
-    "enteredStateAt": null,
-    "candlesSinceStateChange": 1,
-    "setup": null,
-    "transitions": [],
+    "state": "CONSOLIDATION_DETECTED",
+    "enteredStateAt": "2026-05-01T15:12:05.842Z",
+    "candlesSinceStateChange": 0,
+    "setup": {
+      "consolidation": {
+        "active": true,
+        "high": 84.02,
+        "low": 82.17,
+        "range": 1.8499999999999943,
+        "startTime": 1777496400000,
+        "endTime": 1777600800000,
+        "startIndex": 457,
+        "endIndex": 486,
+        "atr": 0.46999999999999786,
+        "avgATR": 0.41871428571428443,
+        "atrCompression": 1.1224837939269858
+      }
+    },
+    "transitions": [
+      {
+        "from": "IDLE",
+        "to": "CONSOLIDATION_DETECTED",
+        "time": "2026-05-01T15:12:05.842Z",
+        "reason": "Consolidation range detected",
+        "data": {
+          "high": 84.02,
+          "low": 82.17,
+          "atrCompression": 1.1224837939269858
+        }
+      }
+    ],
+    "position": null
+  },
+  "BTCUSDT": {
+    "state": "IN_POSITION",
+    "enteredStateAt": "2026-05-01T15:12:03.123Z",
+    "candlesSinceStateChange": 0,
+    "setup": {
+      "consolidation": {
+        "active": true,
+        "high": 76771.8,
+        "low": 75300.01,
+        "range": 1471.7900000000081,
+        "startTime": 1777489200000,
+        "endTime": 1777600800000,
+        "startIndex": 455,
+        "endIndex": 486,
+        "atr": 436.58714285714296,
+        "avgATR": 333.5845357142882,
+        "atrCompression": 1.3087751262878549
+      },
+      "sweep": {
+        "direction": "bearish",
+        "poolType": "EQH",
+        "level": 77738.73999999999,
+        "sweepHigh": 77904.15,
+        "closePrice": 77620.7,
+        "index": 446,
+        "time": 1777456800000,
+        "wickRatio": 12.887800097988661,
+        "volumeRatio": 1.3329828218129343,
+        "touches": 2,
+        "pool": {
+          "type": "high",
+          "level": 77738.73999999999,
+          "touches": 2,
+          "touchPoints": [
+            {
+              "price": 77763.2,
+              "index": 337,
+              "time": 1777064400000
+            },
+            {
+              "price": 77714.28,
+              "index": 343,
+              "time": 1777086000000
+            }
+          ],
+          "firstSeen": 1777064400000,
+          "lastSeen": 1777086000000,
+          "swept": true,
+          "sweptAt": 1777456800000
+        }
+      },
+      "choch": {
+        "type": "CHoCH",
+        "direction": "bearish",
+        "index": 425,
+        "time": 1777626000000,
+        "brokenLevel": 77345.84,
+        "closePrice": 77319.99,
+        "swingIndex": 422
+      },
+      "entryZone": {
+        "type": "OB",
+        "high": 79366.67,
+        "low": 78400,
+        "direction": "bearish",
+        "time": 1777248000000,
+        "distance": 60.279999999998836
+      }
+    },
+    "transitions": [
+      {
+        "from": "IDLE",
+        "to": "CONSOLIDATION_DETECTED",
+        "time": "2026-05-01T15:12:03.122Z",
+        "reason": "Consolidation range detected",
+        "data": {
+          "high": 76771.8,
+          "low": 75300.01,
+          "atrCompression": 1.3087751262878549
+        }
+      },
+      {
+        "from": "CONSOLIDATION_DETECTED",
+        "to": "SWEEP_OCCURRED",
+        "time": "2026-05-01T15:12:03.123Z",
+        "reason": "EQH swept at $77738.74",
+        "data": {
+          "direction": "bearish",
+          "level": 77738.73999999999,
+          "wickRatio": 12.887800097988661,
+          "volumeRatio": 1.3329828218129343
+        }
+      },
+      {
+        "from": "SWEEP_OCCURRED",
+        "to": "AWAITING_CHOCH",
+        "time": "2026-05-01T15:12:03.123Z",
+        "reason": "CHoCH bearish confirmed after sweep",
+        "data": {
+          "direction": "bearish",
+          "brokenLevel": 77345.84
+        }
+      },
+      {
+        "from": "AWAITING_CHOCH",
+        "to": "AWAITING_ENTRY",
+        "time": "2026-05-01T15:12:03.123Z",
+        "reason": "Entry zone found: OB at $78400.00-$79366.67",
+        "data": {
+          "zoneType": "OB",
+          "high": 79366.67,
+          "low": 78400
+        }
+      },
+      {
+        "from": "AWAITING_ENTRY",
+        "to": "IN_POSITION",
+        "time": "2026-05-01T15:12:03.123Z",
+        "reason": "HIGH confidence — entering bearish at $78339.72, SL $77991.47 (bias warning: HTF bullish)",
+        "data": {
+          "entryPrice": 78339.72,
+          "slPrice": 77991.46742857143,
+          "direction": "bearish",
+          "confidence": "HIGH"
+        }
+      }
+    ],
+    "position": {
+      "direction": "bearish",
+      "entryPrice": 78339.72,
+      "slPrice": 77991.46742857143,
+      "enteredAt": "2026-05-01T15:12:03.123Z"
+    }
+  },
+  "ETHUSDT": {
+    "state": "AWAITING_ENTRY",
+    "enteredStateAt": "2026-05-01T15:12:04.995Z",
+    "candlesSinceStateChange": 0,
+    "setup": {
+      "consolidation": {
+        "active": true,
+        "high": 2279.17,
+        "low": 2225.42,
+        "range": 53.75,
+        "startTime": 1777489200000,
+        "endTime": 1777600800000,
+        "startIndex": 455,
+        "endIndex": 486,
+        "atr": 14.198571428571443,
+        "avgATR": 12.039285714285748,
+        "atrCompression": 1.1793533076238483
+      },
+      "sweep": {
+        "direction": "bearish",
+        "poolType": "EQH",
+        "level": 2321.7966666666666,
+        "sweepHigh": 2330.15,
+        "closePrice": 2315.41,
+        "index": 402,
+        "time": 1777298400000,
+        "wickRatio": 5.245551601423673,
+        "volumeRatio": 2.377231400842441,
+        "touches": 3,
+        "pool": {
+          "type": "high",
+          "level": 2321.7966666666666,
+          "touches": 3,
+          "touchPoints": [
+            {
+              "price": 2321.24,
+              "index": 341,
+              "time": 1777078800000
+            },
+            {
+              "price": 2323.19,
+              "index": 349,
+              "time": 1777107600000
+            },
+            {
+              "price": 2320.96,
+              "index": 362,
+              "time": 1777154400000
+            }
+          ],
+          "firstSeen": 1777078800000,
+          "lastSeen": 1777154400000,
+          "swept": true,
+          "sweptAt": 1777298400000
+        }
+      },
+      "choch": {
+        "type": "CHoCH",
+        "direction": "bearish",
+        "index": 434,
+        "time": 1777628700000,
+        "brokenLevel": 2282.51,
+        "closePrice": 2279.93,
+        "swingIndex": 429
+      },
+      "entryZone": {
+        "type": "OB",
+        "high": 2346.63,
+        "low": 2322.63,
+        "direction": "bearish",
+        "time": 1777453200000,
+        "distance": 15.5300000000002
+      }
+    },
+    "transitions": [
+      {
+        "from": "IDLE",
+        "to": "CONSOLIDATION_DETECTED",
+        "time": "2026-05-01T15:12:04.995Z",
+        "reason": "Consolidation range detected",
+        "data": {
+          "high": 2279.17,
+          "low": 2225.42,
+          "atrCompression": 1.1793533076238483
+        }
+      },
+      {
+        "from": "CONSOLIDATION_DETECTED",
+        "to": "SWEEP_OCCURRED",
+        "time": "2026-05-01T15:12:04.995Z",
+        "reason": "EQH swept at $2321.80",
+        "data": {
+          "direction": "bearish",
+          "level": 2321.7966666666666,
+          "wickRatio": 5.245551601423673,
+          "volumeRatio": 2.377231400842441
+        }
+      },
+      {
+        "from": "SWEEP_OCCURRED",
+        "to": "AWAITING_CHOCH",
+        "time": "2026-05-01T15:12:04.995Z",
+        "reason": "CHoCH bearish confirmed after sweep",
+        "data": {
+          "direction": "bearish",
+          "brokenLevel": 2282.51
+        }
+      },
+      {
+        "from": "AWAITING_CHOCH",
+        "to": "AWAITING_ENTRY",
+        "time": "2026-05-01T15:12:04.995Z",
+        "reason": "Entry zone found: OB at $2322.63-$2346.63",
+        "data": {
+          "zoneType": "OB",
+          "high": 2346.63,
+          "low": 2322.63
+        }
+      }
+    ],
     "position": null
   }
 }

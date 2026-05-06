@@ -1,0 +1,9 @@
+Date,Time (UTC),Exchange,Symbol,Strategy,Timeframe,Side,Quantity,Price,Total USD,Fee (est.),Net Amount,Stop Loss,Order ID,Mode,Notes
+2026-04-22,04:57:47,BitGet,BTCUSDT,Strategy 1: VWAP + RSI(3) + EMA(8),1H,,,77474.40,,,,,BLOCKED,BLOCKED,"Failed: RSI(3) below 30 (snap-back setup in uptrend)"
+2026-04-22,04:57:48,BitGet,BTCUSDT,Strategy 2: EMA Crossover + MACD + RSI(14),4H,,,77474.40,,,,,BLOCKED,BLOCKED,"Failed: RSI(14) between 40-70 (healthy momentum)"
+2026-04-22,13:25:52,BitGet,BTCUSDT,Strategy 1: VWAP + RSI(3) + EMA(8),1H,,,78413.75,,,,,BLOCKED,BLOCKED,"Failed: RSI(3) below 30 (snap-back setup in uptrend)"
+2026-04-22,13:25:52,BitGet,ETHUSDT,Strategy 1: VWAP + RSI(3) + EMA(8),1H,,,2409.53,,,,,BLOCKED,BLOCKED,"Failed: RSI(3) below 30 (snap-back setup in uptrend)"
+2026-04-22,13:25:53,BitGet,SOLUSDT,Strategy 1: VWAP + RSI(3) + EMA(8),1H,,,88.72,,,,,BLOCKED,BLOCKED,"Failed: RSI(3) below 30 (snap-back setup in uptrend)"
+2026-04-22,13:25:53,BitGet,BTCUSDT,Strategy 2: EMA Crossover + MACD + RSI(14),4H,,,78413.75,,,,,BLOCKED,BLOCKED,"Failed: RSI(14) between 40-70 (healthy momentum)"
+2026-04-22,13:25:54,BitGet,ETHUSDT,Strategy 2: EMA Crossover + MACD + RSI(14),4H,,,2409.54,,,,,BLOCKED,BLOCKED,"Failed: RSI(14) between 40-70 (healthy momentum)"
+2026-04-22,13:25:54,BitGet,SOLUSDT,Strategy 2: EMA Crossover + MACD + RSI(14),4H,,,88.72,,,,,BLOCKED,BLOCKED,"Failed: RSI(14) between 40-70 (healthy momentum)"
