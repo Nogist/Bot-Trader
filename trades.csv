@@ -1,1 +1,8 @@
 Date,Time (UTC),Exchange,Symbol,Strategy,Timeframe,Side,Quantity,Entry Price,Stop Loss,TP1,TP2,R:R,Total USD,Fee (est.),Net Amount,Order ID,Mode,Status,Notes
+2026-05-01,15:12:00,BitGet,BTCUSDT,Strategy 1: VWAP + RSI(3) + EMA(8),1H,,,78330.00,,,,,,,,BLOCKED,BLOCKED,BLOCKED,"Failed: RSI(3) below 30 (snap-back setup in uptrend)"
+2026-05-01,15:12:00,BitGet,ETHUSDT,Strategy 1: VWAP + RSI(3) + EMA(8),1H,,,2306.81,,,,,,,,BLOCKED,BLOCKED,BLOCKED,"Failed: RSI(3) below 30 (snap-back setup in uptrend)"
+2026-05-01,15:12:01,BitGet,SOLUSDT,Strategy 1: VWAP + RSI(3) + EMA(8),1H,,,84.19,,,,,,,,BLOCKED,BLOCKED,BLOCKED,"Failed: RSI(3) below 30 (snap-back setup in uptrend)"
+2026-05-01,15:12:01,BitGet,BTCUSDT,Strategy 2: EMA Crossover + MACD + RSI(14),4H,BUY,,78330.99,,,,,,,,,PAPER,SKIPPED,"Conditions met — skipped (limit/duplicate)"
+2026-05-01,15:12:01,BitGet,ETHUSDT,Strategy 2: EMA Crossover + MACD + RSI(14),4H,,,2307.10,,,,,,,,BLOCKED,BLOCKED,BLOCKED,"Failed: Price below EMA(21) (riding the trend); MACD histogram negative (momentum confirmed)"
+2026-05-01,15:12:02,BitGet,SOLUSDT,Strategy 2: EMA Crossover + MACD + RSI(14),4H,,,84.19,,,,,,,,BLOCKED,BLOCKED,BLOCKED,"Failed: Price below EMA(21) (riding the trend); MACD histogram negative (momentum confirmed)"
+2026-05-01,15:12:03,BitGet,BTCUSDT,Strategy 3: SMC Liquidity Sweep,1H/5m,SELL,0.001276,78339.72,348.25,77458.40,76193.99,2.5,100.00,0.1000,99.90,PAPER-1777648323125,PAPER,OPEN,"All conditions met"
