@@ -1,10 +1,4 @@
-# Claude + TradingView MCP — Automated Trading
-
-> **New to this?** Watch the previous video first — it sets up the TradingView MCP connection this builds on.
-
-[![How To Connect Claude to TradingView (Insanely Cool)](https://img.youtube.com/vi/vIX6ztULs4U/maxresdefault.jpg)](https://youtu.be/vIX6ztULs4U)
-
-[![Claude Code + TradingView Now Actually Executes Real Trades](https://img.youtube.com/vi/aDWJ6lLemJU/maxresdefault.jpg)](https://www.youtube.com/watch?v=aDWJ6lLemJU)
+# Bot Trader
 
 ---
 
@@ -12,7 +6,7 @@
 
 **Five things you get from this setup:**
 
-1. **Claude connected to your exchange** — reads your TradingView chart and executes trades on BitGet automatically
+1. **Automated exchange execution** — reads market data, evaluates your strategy, and executes trades on BitGet automatically
 2. **A safety check** — every condition in your strategy must pass before a single trade goes through
 3. **24/7 cloud execution** — deploy to Railway and it runs on a schedule, even when your laptop is closed
 4. **Automatic tax accounting** — every trade logged to `trades.csv` with date, price, fees, and net amount, ready for your accountant
@@ -22,11 +16,11 @@
 
 ## The One-Shot Prompt
 
-> **This is the thing you paste.** Open Claude Code in this directory, paste the entire contents of [`prompts/02-one-shot-trade.md`](prompts/02-one-shot-trade.md), and Claude will do the rest.
+> **This is the main onboarding prompt.** Open Claude Code in this directory, paste the entire contents of [`prompts/02-one-shot-trade.md`](prompts/02-one-shot-trade.md), and follow the setup flow.
 
 Here's what it does when you run it:
 
-| Step | What Claude does |
+| Step | What the workflow does |
 |------|-----------------|
 | 1 | Reads your `rules.json` strategy |
 | 2 | Pulls live price + indicator data from TradingView |
@@ -48,7 +42,7 @@ If anything fails the safety check, it stops and tells you exactly which conditi
 
 Copy the entire contents of [`prompts/02-one-shot-trade.md`](prompts/02-one-shot-trade.md) and paste it into your Claude Code terminal.
 
-That's it. Claude acts as your onboarding agent — it clones the repo, walks you through connecting BitGet, sets your trading preferences, connects TradingView, optionally builds a strategy from a YouTube channel, deploys to Railway, and runs the bot for the first time. Every step is interactive. It pauses when it needs something from you and handles everything else automatically.
+That prompt walks through the initial setup: connecting BitGet, setting trading preferences, wiring up TradingView if you use it, optionally generating a strategy from transcript input, deploying to Railway, and running the bot for the first time.
 
 ---
 
@@ -58,9 +52,9 @@ For anyone who wants to understand the steps manually, or troubleshoot a specifi
 
 ### Prerequisites
 
-- **TradingView MCP** must already be set up — built in the [first video](https://youtu.be/vIX6ztULs4U)
+- **TradingView MCP** set up already if you plan to use the local TradingView-assisted workflow
 - **Claude Code** installed and running
-- **A BitGet account** — [sign up here]([https://partner.bitget.com/bg/LewisJackson](https://bonus.bitget.com/LewisJackson)) for a $1,000 bonus on your first deposit
+- **A BitGet account**
 - **Node.js 18+** — check with `node --version`
 
 ---
@@ -69,14 +63,14 @@ For anyone who wants to understand the steps manually, or troubleshoot a specifi
 
 **Mac / Linux:**
 ```bash
-git clone https://github.com/jackson-video-resources/claude-tradingview-mcp-trading
-cd claude-tradingview-mcp-trading
+git clone https://github.com/Nogist/Bot-Trader.git
+cd Bot-Trader
 ```
 
 **Windows:**
 ```powershell
-git clone https://github.com/jackson-video-resources/claude-tradingview-mcp-trading
-cd claude-tradingview-mcp-trading
+git clone https://github.com/Nogist/Bot-Trader.git
+cd Bot-Trader
 ```
 
 ---
@@ -110,7 +104,7 @@ Step-by-step guides for all supported exchanges:
 
 | Exchange | Guide |
 |----------|-------|
-| BitGet *(used in the video)* | [docs/exchanges/bitget.md](docs/exchanges/bitget.md) |
+| BitGet | [docs/exchanges/bitget.md](docs/exchanges/bitget.md) |
 | Binance | [docs/exchanges/binance.md](docs/exchanges/binance.md) |
 | Bybit | [docs/exchanges/bybit.md](docs/exchanges/bybit.md) |
 | OKX | [docs/exchanges/okx.md](docs/exchanges/okx.md) |
@@ -198,11 +192,11 @@ In Railway → Settings → Cron Schedule, set how often the bot runs. Recommend
 
 ## Build Your Own Strategy (Optional)
 
-The example `rules.json` uses the van de Poppe + Tone Vays BTC strategy. To build one from any trader's public videos:
+The example `rules.json` contains starter strategies. You can also build your own from public market commentary or transcript data:
 
-1. Go to [Apify](https://apify.com?fpr=3ly3yd) and search the actor store for **YouTube Transcript Scraper** — takes about 30 seconds per channel
+1. Export or collect the transcript/source material you want to base the strategy on
 2. Paste the output into `prompts/01-extract-strategy.md`
-3. Run that prompt in Claude Code — it generates a `rules.json` tailored to that trader's methodology
+3. Run that prompt in Claude Code — it generates a `rules.json` tailored to that methodology
 
 ---
 
@@ -254,7 +248,7 @@ This prints total trades, volume, and fees paid.
 
 ## Safety
 
-The safety check conditions are not fixed — they come directly from your `rules.json`. If you build a strategy from a YouTube trader's transcripts using the Apify prompt, your safety check will reflect that trader's entry logic. If you use the example strategy, it reflects those conditions. They're yours, not a generic filter.
+The safety check conditions are not fixed — they come directly from your `rules.json`. If you build a strategy from transcripts or other source material, the safety check will reflect that entry logic. If you use the example strategy, it reflects those conditions. They're yours, not a generic filter.
 
 Every condition in your `entry_rules` must pass before a trade goes through. One fails — nothing happens. The bot tells you exactly which condition failed and the actual value it saw.
 
@@ -271,7 +265,6 @@ Additional guardrails that apply regardless of strategy:
 
 ## Resources
 
-- [First video — Connect Claude to TradingView](https://youtu.be/vIX6ztULs4U)
-- [TradingView MCP repo (first video)](https://github.com/jackson-video-resources/tradingview-mcp-jackson)
-- [Apify](https://apify.com?fpr=3ly3yd) — search actor store for "YouTube Transcript Scraper"
-- [BitGet — $1,000 bonus on first deposit]([https://partner.bitget.com/bg/LewisJackson](https://bonus.bitget.com/LewisJackson))
+- [Railway](https://railway.app/)
+- [BitGet API Docs](https://www.bitget.com/api-doc/common/intro)
+- [TradingView](https://www.tradingview.com/)
